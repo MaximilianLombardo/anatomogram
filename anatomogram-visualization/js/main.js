@@ -129,6 +129,11 @@ function update() {
 
             // Check if the element is a group or a direct path/shape
             if (node.tagName.toLowerCase() === 'g') {
+                // Remove any inline style that might block fill on the group
+                const currentStyle = element.attr('style');
+                if (currentStyle && currentStyle.includes('fill:none')) {
+                    element.attr('style', currentStyle.replace(/fill:\s*none\s*;?/g, ''));
+                }
                 // If it's a group, apply the fill to all its children paths/shapes
                 element.selectAll('path, rect, circle, polygon, ellipse').style('fill', fillColor);
             } else {
@@ -139,6 +144,11 @@ function update() {
              // If no data, ensure it's grey and has no expression data attribute
              element.attr('data-expression', null);
              if (node.tagName.toLowerCase() === 'g') {
+                // Remove any inline style that might block fill on the group
+                const currentStyle = element.attr('style');
+                if (currentStyle && currentStyle.includes('fill:none')) {
+                    element.attr('style', currentStyle.replace(/fill:\s*none\s*;?/g, ''));
+                }
                 element.selectAll('path, rect, circle, polygon, ellipse').style('fill', '#E0E0E0');
             } else {
                 element.style('fill', '#E0E0E0');
