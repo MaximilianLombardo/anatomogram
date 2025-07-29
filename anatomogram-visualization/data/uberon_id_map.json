@@ -103,5 +103,10 @@
   "UBERON_0001044": "Salivary Gland",
   "UBERON_0001831": "Parotid Gland",
   "UBERON_0001736": "Submandibular Gland",
-  "UBERON_0000014": "Zone of Skin"
+  "UBERON_0000014": "Zone of Skin",
+  "UBERON_0001295": "Endometrium",
+  "UBERON_0000002": "Uterine Cervix",
+  "UBERON_0000996": "Vagina",
+  "UBERON_0012249": "Ectocervix",
+  "UBERON_0002481": "Bone Tissue"
 }

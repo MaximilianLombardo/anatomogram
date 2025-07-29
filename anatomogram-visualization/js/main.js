@@ -222,14 +222,23 @@ function createLegend(colorScale, scaleType) {
 // *** FIX: onMouseOver now uses the event object from the delegated listener ***
 function onMouseOver(event) {
     // event.target is the actual element the mouse is over (e.g., a specific <path>)
-    const targetElement = d3.select(event.target);
+    let targetElement = event.target;
+    let tissueElement = null;
     
-    // Find the element with the UBERON ID by checking the target and its parents
-    const tissueElement = targetElement.closest('*[id^="UBERON"]');
-    if (!tissueElement.node()) return; // Exit if no UBERON element is found
-
-    const uberonId = tissueElement.attr('id');
-    const expressionValue = tissueElement.attr('data-expression');
+    // Walk up the DOM tree to find an element with UBERON ID
+    while (targetElement && targetElement !== document.body) {
+        if (targetElement.id && targetElement.id.startsWith('UBERON')) {
+            tissueElement = targetElement;
+            break;
+        }
+        targetElement = targetElement.parentElement;
+    }
+    
+    if (!tissueElement) return; // Exit if no UBERON element is found
+    
+    const d3TissueElement = d3.select(tissueElement);
+    const uberonId = tissueElement.id;
+    const expressionValue = d3TissueElement.attr('data-expression');
     
     const tooltip = d3.select('#tooltip');
 
