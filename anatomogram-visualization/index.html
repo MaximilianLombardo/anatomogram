@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gene Expression Anatomogram Visualization</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Gene Expression Anatomogram Visualization</h1>
+        </header>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>View:</label>
+                <div id="sex-selector">
+                    <input type="radio" id="male" name="sex" value="male" checked>
+                    <label for="male">Male</label>
+                    <input type="radio" id="female" name="sex" value="female">
+                    <label for="female">Female</label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label for="gene-selector">Gene:</label>
+                <select id="gene-selector"></select>
+            </div>
+
+            <div class="control-group">
+                <label for="color-palette-selector">Palette:</label>
+                <select id="color-palette-selector">
+                    <option value="viridis">Viridis</option>
+                    <option value="magma">Magma</option>
+                    <option value="inferno">Inferno</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="scale-type-selector">Scale:</label>
+                <select id="scale-type-selector">
+                    <option value="linear">Linear</option>
+                    <option value="log">Logarithmic</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <button id="export-svg-button">Export as SVG</button>
+            </div>
+        </div>
+
+        <div id="loading-indicator" class="loading">Loading Visualization...</div>
+
+        <div class="visualization-wrapper">
+            <div id="anatomogram-container"></div>
+            <div id="legend"></div>
+        </div>
+
+        <div id="tooltip" class="tooltip"></div>
+    </div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
