@@ -107,7 +107,7 @@ The application follows a client-server architecture:
 1. Clone the repository:
 ```bash
 git clone https://github.com/MaximilianLombardo/anatomogram.git
-cd anatomogram/anatomogram-visualization
+cd anatomogram
 ```
 
 2. No additional dependencies required! The tool uses vanilla JavaScript and Python's built-in HTTP server.
@@ -218,7 +218,7 @@ grep -o 'id="UBERON_[0-9]*"' assets/svg/homo_sapiens.female.svg | sort | uniq
 ## Project Structure
 
 ```
-anatomogram-visualization/
+anatomogram/
 ├── src/                      # Source code
 │   ├── css/
 │   │   └── style.css        # Application styles
