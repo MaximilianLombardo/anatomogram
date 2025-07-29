@@ -101,17 +101,45 @@ function update() {
     createLegend(colorScale, selectedScale);
     
     const svg = d3.select('#anatomogram-container svg');
-    svg.selectAll('path').each(function() {
-        const path = d3.select(this);
-        const uberonId = path.attr('id') || path.attr('uberon_id') || path.attr('data-uberon-id');
+    let matchedCount = 0;
+    let totalPaths = 0;
+    let allUberonIds = [];
+    
+    // Find all elements with UBERON IDs (could be path, rect, ellipse, etc.)
+    svg.selectAll('*[id^="UBERON"]').each(function() {
+        const element = d3.select(this);
+        const uberonId = element.attr('id');
+        allUberonIds.push(uberonId);
         
         if (uberonId && geneData[uberonId] !== undefined) {
+            matchedCount++;
+            totalPaths++;
             const value = geneData[uberonId];
-            path.attr('fill', colorScale(value))
-                .attr('data-expression', value);
-        } else {
-            path.attr('fill', '#E0E0E0')
-                .attr('data-expression', null);
+            element.style('fill', colorScale(value))
+                   .style('stroke', '#ffffff')
+                   .style('stroke-width', '0.5')
+                   .attr('data-expression', value);
+        } else if (uberonId) {
+            totalPaths++;
+            element.style('fill', '#E0E0E0')
+                   .style('stroke', '#ffffff')
+                   .style('stroke-width', '0.5')
+                   .attr('data-expression', null);
+        }
+    });
+    
+    console.log(`Matched ${matchedCount} out of ${totalPaths} UBERON elements for gene ${selectedGene}`);
+    console.log('Sample UBERON IDs found:', allUberonIds.slice(0, 10));
+    
+    // Also color any paths without UBERON IDs to default grey
+    svg.selectAll('path').each(function() {
+        const path = d3.select(this);
+        if (!path.attr('id') || !path.attr('id').startsWith('UBERON')) {
+            if (!path.attr('data-expression')) {
+                path.style('fill', '#E0E0E0')
+                    .style('stroke', '#ffffff')
+                    .style('stroke-width', '0.5');
+            }
         }
     });
 }
@@ -184,14 +212,23 @@ function createLegend(colorScale, scaleType) {
 
 function onMouseOver(event) {
     const path = d3.select(this);
-    const uberonId = path.attr('id') || path.attr('uberon_id') || path.attr('data-uberon-id');
+    let uberonId = path.attr('id') || path.attr('data-uberon-id');
     const expressionValue = path.attr('data-expression');
+    
+    // If the path doesn't have a UBERON ID, check its parent group
+    if (!uberonId || !uberonId.startsWith('UBERON')) {
+        const parentGroup = d3.select(this.parentNode);
+        if (parentGroup.attr('id') && parentGroup.attr('id').startsWith('UBERON')) {
+            uberonId = parentGroup.attr('id');
+        }
+    }
     
     const tooltip = document.getElementById('tooltip');
     
     if (uberonId && uberonIdMap[uberonId]) {
         const tissueName = uberonIdMap[uberonId];
-        const value = expressionValue !== 'null' ? parseFloat(expressionValue).toFixed(3) : 'No data';
+        const value = expressionValue !== 'null' && expressionValue !== null ? 
+            parseFloat(expressionValue).toFixed(3) : 'No data';
         
         tooltip.innerHTML = `
             <div class="tissue-name">${tissueName}</div>
