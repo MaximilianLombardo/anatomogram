@@ -8,10 +8,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadingIndicator.style.display = 'block';
 
     Promise.all([
-        d3.json('data/expression_data.json'),
-        d3.json('data/uberon_id_map.json'),
-        d3.xml('svg/homo_sapiens.male.svg'),
-        d3.xml('svg/homo_sapiens.female.svg')
+        d3.json('/data/expression_data.json'),
+        d3.json('/data/uberon_id_map.json'),
+        d3.xml('/assets/svg/homo_sapiens.male.svg'),
+        d3.xml('/assets/svg/homo_sapiens.female.svg')
     ])
     .then(([exprData, idMap, maleSvg, femaleSvg]) => {
         expressionData = exprData;
