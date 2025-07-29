@@ -6,7 +6,7 @@ let femaleSvgDoc = null;
 document.addEventListener('DOMContentLoaded', () => {
     const loadingIndicator = document.getElementById('loading-indicator');
     loadingIndicator.style.display = 'block';
-    
+
     Promise.all([
         d3.json('data/expression_data.json'),
         d3.json('data/uberon_id_map.json'),
@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uberonIdMap = idMap;
         maleSvgDoc = maleSvg;
         femaleSvgDoc = femaleSvg;
-        
+
         init();
     })
     .catch(error => {
@@ -30,18 +30,19 @@ document.addEventListener('DOMContentLoaded', () => {
 function init() {
     const loadingIndicator = document.getElementById('loading-indicator');
     loadingIndicator.style.display = 'none';
-    
+
     populateGeneSelector();
-    
     attachEventListeners();
-    
+
+    // Perform the initial render
     switchAnatomogram('male');
 }
 
 function populateGeneSelector() {
     const geneSelector = document.getElementById('gene-selector');
-    const genes = Object.keys(expressionData.genes);
-    
+    // Ensure expressionData.genes exists before trying to get keys
+    const genes = expressionData && expressionData.genes ? Object.keys(expressionData.genes) : [];
+
     genes.forEach(gene => {
         const option = document.createElement('option');
         option.value = gene;
@@ -51,40 +52,49 @@ function populateGeneSelector() {
 }
 
 function attachEventListeners() {
+    // Listeners for UI controls - these are attached once and are persistent
     document.querySelectorAll('input[name="sex"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
             switchAnatomogram(e.target.value);
         });
     });
-    
+
     document.getElementById('gene-selector').addEventListener('change', update);
     document.getElementById('color-palette-selector').addEventListener('change', update);
     document.getElementById('scale-type-selector').addEventListener('change', update);
-    
     document.getElementById('export-svg-button').addEventListener('click', exportSVG);
+    document.getElementById('debug-button').addEventListener('click', showDebugInfo);
+
+    // *** FIX: Use Event Delegation for Tooltips ***
+    // Attach one set of listeners to the container. This is more efficient and
+    // robust than attaching listeners to every single path on every redraw.
+    // D3's .on() method handles this perfectly.
+    const container = d3.select('#anatomogram-container');
+    container
+        .on('mouseover', onMouseOver)
+        .on('mousemove', onMouseMove)
+        .on('mouseout', onMouseOut);
 }
 
 function switchAnatomogram(sex) {
     const container = document.getElementById('anatomogram-container');
-    container.innerHTML = '';
-    
+    container.innerHTML = ''; // Clear previous SVG
+
     const svgDoc = sex === 'male' ? maleSvgDoc : femaleSvgDoc;
-    
+
     if (!svgDoc) {
-        container.innerHTML = `<p>SVG file for ${sex} anatomogram not found. Please download from Expression Atlas.</p>`;
+        container.innerHTML = `<p>Error: SVG for ${sex} not loaded.</p>`;
         return;
     }
-    
+
+    // Append a clone of the loaded SVG document
     const svgNode = svgDoc.documentElement.cloneNode(true);
     container.appendChild(svgNode);
-    
-    d3.select(svgNode).selectAll('path').each(function() {
-        const path = d3.select(this);
-        path.on('mouseover', onMouseOver)
-            .on('mousemove', onMouseMove)
-            .on('mouseout', onMouseOut);
-    });
-    
+
+    // *** FIX: The event listeners are now on the container, so we don't need to re-attach them here.
+    // This makes the switcher simpler and more reliable.
+
+    // Call update to color the new SVG
     update();
 }
 
@@ -92,164 +102,162 @@ function update() {
     const selectedGene = document.getElementById('gene-selector').value;
     const selectedPalette = document.getElementById('color-palette-selector').value;
     const selectedScale = document.getElementById('scale-type-selector').value;
-    
-    if (!selectedGene || !expressionData) return;
-    
+
+    if (!selectedGene || !expressionData || !expressionData.genes) return;
+
     const geneData = expressionData.genes[selectedGene];
     const colorScale = setColorScale(selectedPalette, selectedScale, geneData);
-    
+
     createLegend(colorScale, selectedScale);
-    
+
     const svg = d3.select('#anatomogram-container svg');
     let matchedCount = 0;
-    let totalPaths = 0;
-    let allUberonIds = [];
     
-    // Find all elements with UBERON IDs (could be path, rect, ellipse, etc.)
+    // *** FIX: Robustly handle both <path> and <g> elements with UBERON IDs ***
     svg.selectAll('*[id^="UBERON"]').each(function() {
         const element = d3.select(this);
         const uberonId = element.attr('id');
-        allUberonIds.push(uberonId);
-        
-        if (uberonId && geneData[uberonId] !== undefined) {
+        const node = element.node(); // Get the raw DOM node
+        const expressionValue = geneData[uberonId];
+
+        if (expressionValue !== undefined) {
             matchedCount++;
-            totalPaths++;
-            const value = geneData[uberonId];
-            element.style('fill', colorScale(value))
-                   .style('stroke', '#ffffff')
-                   .style('stroke-width', '0.5')
-                   .attr('data-expression', value);
-        } else if (uberonId) {
-            totalPaths++;
-            element.style('fill', '#E0E0E0')
-                   .style('stroke', '#ffffff')
-                   .style('stroke-width', '0.5')
-                   .attr('data-expression', null);
-        }
-    });
-    
-    console.log(`Matched ${matchedCount} out of ${totalPaths} UBERON elements for gene ${selectedGene}`);
-    console.log('Sample UBERON IDs found:', allUberonIds.slice(0, 10));
-    
-    // Also color any paths without UBERON IDs to default grey
-    svg.selectAll('path').each(function() {
-        const path = d3.select(this);
-        if (!path.attr('id') || !path.attr('id').startsWith('UBERON')) {
-            if (!path.attr('data-expression')) {
-                path.style('fill', '#E0E0E0')
-                    .style('stroke', '#ffffff')
-                    .style('stroke-width', '0.5');
+            const fillColor = colorScale(expressionValue);
+
+            // Store the expression data on the element for the tooltip
+            element.attr('data-expression', expressionValue);
+
+            // Check if the element is a group or a direct path/shape
+            if (node.tagName.toLowerCase() === 'g') {
+                // If it's a group, apply the fill to all its children paths/shapes
+                element.selectAll('path, rect, circle, polygon, ellipse').style('fill', fillColor);
+            } else {
+                // If it's a path or other shape, apply the fill directly
+                element.style('fill', fillColor);
+            }
+        } else {
+             // If no data, ensure it's grey and has no expression data attribute
+             element.attr('data-expression', null);
+             if (node.tagName.toLowerCase() === 'g') {
+                element.selectAll('path, rect, circle, polygon, ellipse').style('fill', '#E0E0E0');
+            } else {
+                element.style('fill', '#E0E0E0');
             }
         }
     });
+
+    console.log(`Successfully colored ${matchedCount} tissues for gene ${selectedGene}`);
 }
 
+
 function setColorScale(paletteName, scaleType, geneData) {
-    const values = Object.values(geneData).filter(v => v > 0);
-    const minValue = scaleType === 'log' ? d3.min(values) || 0.001 : 0;
-    const maxValue = d3.max(Object.values(geneData)) || 1;
-    
-    let colorScheme;
-    switch(paletteName) {
+    const values = Object.values(geneData).filter(v => typeof v === 'number');
+    const maxValue = d3.max(values) || 1;
+
+    let colorInterpolator;
+    switch (paletteName) {
         case 'magma':
-            colorScheme = d3.interpolateMagma;
+            colorInterpolator = d3.interpolateMagma;
             break;
         case 'inferno':
-            colorScheme = d3.interpolateInferno;
+            colorInterpolator = d3.interpolateInferno;
             break;
         case 'viridis':
         default:
-            colorScheme = d3.interpolateViridis;
+            colorInterpolator = d3.interpolateViridis;
     }
-    
-    let scale;
+
     if (scaleType === 'log') {
-        scale = d3.scaleLog()
-            .domain([minValue, maxValue])
+        const positiveValues = values.filter(v => v > 0);
+        const minPositiveValue = d3.min(positiveValues) || 0.001;
+        
+        const logScale = d3.scaleLog()
+            .domain([minPositiveValue, maxValue])
             .range([0, 1])
             .clamp(true);
-        
+
         return (value) => {
-            if (value === 0) return colorScheme(0);
-            return colorScheme(scale(value));
+            if (value <= 0) return colorInterpolator(0); // Color for 0 or negative values
+            return colorInterpolator(logScale(value));
         };
     } else {
-        scale = d3.scaleLinear()
+        const linearScale = d3.scaleLinear()
             .domain([0, maxValue])
             .range([0, 1]);
-        
-        return (value) => colorScheme(scale(value));
+
+        return (value) => colorInterpolator(linearScale(value));
     }
 }
 
 function createLegend(colorScale, scaleType) {
     const legendContainer = document.getElementById('legend');
     legendContainer.innerHTML = '<h3>Expression Level</h3>';
-    
+
     const steps = 5;
     const maxValue = 1;
-    
+
     for (let i = 0; i <= steps; i++) {
         const value = (maxValue / steps) * i;
-        const displayValue = scaleType === 'log' && i === 0 ? '0' : value.toFixed(2);
-        
+        // For the legend, we just show the 0-1 scale visually
+        const displayValue = value.toFixed(2);
+
         const legendItem = document.createElement('div');
         legendItem.className = 'legend-item';
-        
+
         const colorBox = document.createElement('div');
         colorBox.className = 'legend-color';
+        // The color is derived from the value (0-1) passed to the scale function
         colorBox.style.backgroundColor = colorScale(value);
-        
+
         const label = document.createElement('span');
         label.className = 'legend-label';
         label.textContent = displayValue;
-        
+
         legendItem.appendChild(colorBox);
         legendItem.appendChild(label);
         legendContainer.appendChild(legendItem);
     }
 }
 
+// *** FIX: onMouseOver now uses the event object from the delegated listener ***
 function onMouseOver(event) {
-    const path = d3.select(this);
-    let uberonId = path.attr('id') || path.attr('data-uberon-id');
-    const expressionValue = path.attr('data-expression');
+    // event.target is the actual element the mouse is over (e.g., a specific <path>)
+    const targetElement = d3.select(event.target);
     
-    // If the path doesn't have a UBERON ID, check its parent group
-    if (!uberonId || !uberonId.startsWith('UBERON')) {
-        const parentGroup = d3.select(this.parentNode);
-        if (parentGroup.attr('id') && parentGroup.attr('id').startsWith('UBERON')) {
-            uberonId = parentGroup.attr('id');
-        }
-    }
+    // Find the element with the UBERON ID by checking the target and its parents
+    const tissueElement = targetElement.closest('*[id^="UBERON"]');
+    if (!tissueElement.node()) return; // Exit if no UBERON element is found
+
+    const uberonId = tissueElement.attr('id');
+    const expressionValue = tissueElement.attr('data-expression');
     
-    const tooltip = document.getElementById('tooltip');
-    
+    const tooltip = d3.select('#tooltip');
+
     if (uberonId && uberonIdMap[uberonId]) {
         const tissueName = uberonIdMap[uberonId];
-        const value = expressionValue !== 'null' && expressionValue !== null ? 
-            parseFloat(expressionValue).toFixed(3) : 'No data';
-        
-        tooltip.innerHTML = `
-            <div class="tissue-name">${tissueName}</div>
-            <div class="expression-value">Expression: ${value}</div>
-        `;
-        tooltip.style.display = 'block';
+        const valueText = (expressionValue && expressionValue !== 'null')
+            ? `Expression: ${parseFloat(expressionValue).toFixed(3)}`
+            : 'Expression: No data';
+
+        tooltip.style('display', 'block')
+            .html(`
+                <div class="tissue-name">${tissueName}</div>
+                <div class="expression-value">${valueText}</div>
+            `);
     }
 }
 
 function onMouseMove(event) {
-    const tooltip = document.getElementById('tooltip');
-    const offset = 10;
-    
-    tooltip.style.left = (event.pageX + offset) + 'px';
-    tooltip.style.top = (event.pageY - tooltip.offsetHeight - offset) + 'px';
+    const tooltip = d3.select('#tooltip');
+    const offset = 15;
+    tooltip.style('left', (event.pageX + offset) + 'px')
+           .style('top', (event.pageY - offset) + 'px');
 }
 
 function onMouseOut() {
-    const tooltip = document.getElementById('tooltip');
-    tooltip.style.display = 'none';
+    d3.select('#tooltip').style('display', 'none');
 }
+
 
 function exportSVG() {
     const svgElement = document.querySelector('#anatomogram-container svg');
@@ -257,23 +265,96 @@ function exportSVG() {
         alert('No SVG to export');
         return;
     }
-    
+
     const selectedGene = document.getElementById('gene-selector').value;
-    
+
+    // Create a clone to avoid modifying the live SVG
     const svgClone = svgElement.cloneNode(true);
     
+    // Explicitly set width and height for better compatibility
+    const bounds = svgElement.getBoundingClientRect();
+    d3.select(svgClone)
+        .attr('width', bounds.width)
+        .attr('height', bounds.height);
+
     const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svgClone);
-    
-    const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-    
+    let svgString = serializer.serializeToString(svgClone);
+
+    // Add XML declaration and DOCTYPE for stricter SVG format
+    svgString = '<?xml version="1.0" standalone="no"?>\r\n' + svgString;
+
+    const blob = new Blob([svgString], {
+        type: 'image/svg+xml;charset=utf-8'
+    });
+
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `anatomogram_${selectedGene}_expression.svg`;
-    
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     URL.revokeObjectURL(link.href);
+}
+
+function showDebugInfo() {
+    const svg = d3.select('#anatomogram-container svg');
+    const selectedGene = document.getElementById('gene-selector').value;
+    
+    if (!selectedGene || !expressionData) {
+        alert('Please select a gene first');
+        return;
+    }
+    
+    const geneData = expressionData.genes[selectedGene];
+    let allUberonIds = [];
+    let matchedIds = [];
+    let unmatchedIds = [];
+    
+    // Find all UBERON IDs in the SVG
+    svg.selectAll('*[id^="UBERON"]').each(function() {
+        const element = d3.select(this);
+        const uberonId = element.attr('id');
+        if (uberonId) {
+            allUberonIds.push(uberonId);
+            if (geneData[uberonId] !== undefined) {
+                matchedIds.push(uberonId);
+            } else {
+                unmatchedIds.push(uberonId);
+            }
+        }
+    });
+    
+    const debugInfo = `
+Debug Information for ${selectedGene}:
+=====================================
+Total UBERON elements in SVG: ${allUberonIds.length}
+Matched (have expression data): ${matchedIds.length}
+Unmatched (missing data): ${unmatchedIds.length}
+
+Unmatched UBERON IDs:
+${unmatchedIds.join('\n')}
+
+Sample matched IDs:
+${matchedIds.slice(0, 10).join('\n')}
+    `;
+    
+    // Try multiple console methods
+    console.log(debugInfo);
+    console.info(debugInfo);
+    console.warn('Debug Info:', debugInfo);
+    
+    // Also create a downloadable text file with the debug info
+    const blob = new Blob([debugInfo], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'anatomogram-debug-info.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    
+    alert(`Debug information has been downloaded as 'anatomogram-debug-info.txt'\n\nSummary:\n- Total tissues: ${allUberonIds.length}\n- With data: ${matchedIds.length}\n- Missing data: ${unmatchedIds.length}`);
 }
