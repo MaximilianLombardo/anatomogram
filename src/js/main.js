@@ -108,7 +108,12 @@ function update() {
     const geneData = expressionData.genes[selectedGene];
     const colorScale = setColorScale(selectedPalette, selectedScale, geneData);
 
-    createLegend(colorScale, selectedScale);
+    // Get actual min/max values for the legend
+    const values = Object.values(geneData).filter(v => typeof v === 'number');
+    const minValue = d3.min(values) || 0;
+    const maxValue = d3.max(values) || 1;
+
+    createLegend(colorScale, selectedScale, minValue, maxValue, geneData);
 
     const svg = d3.select('#anatomogram-container svg');
     let matchedCount = 0;
@@ -199,33 +204,90 @@ function setColorScale(paletteName, scaleType, geneData) {
     }
 }
 
-function createLegend(colorScale, scaleType) {
+function createLegend(colorScale, scaleType, minValue, maxValue, geneData) {
     const legendContainer = document.getElementById('legend');
-    legendContainer.innerHTML = '<h3>Expression Level</h3>';
+    legendContainer.innerHTML = `<h3>Expression Level (${scaleType})</h3>`;
 
     const steps = 5;
-    const maxValue = 1;
+    
+    // For log scale, we need to handle the range differently
+    if (scaleType === 'log') {
+        const values = Object.values(geneData).filter(v => typeof v === 'number' && v > 0);
+        const minPositive = d3.min(values) || 0.001;
+        
+        // Create log-spaced values
+        const logMin = Math.log10(minPositive);
+        const logMax = Math.log10(maxValue);
+        
+        for (let i = 0; i <= steps; i++) {
+            const logValue = logMin + (logMax - logMin) * (i / steps);
+            const value = Math.pow(10, logValue);
+            
+            const legendItem = document.createElement('div');
+            legendItem.className = 'legend-item';
 
-    for (let i = 0; i <= steps; i++) {
-        const value = (maxValue / steps) * i;
-        // For the legend, we just show the 0-1 scale visually
-        const displayValue = value.toFixed(2);
+            const colorBox = document.createElement('div');
+            colorBox.className = 'legend-color';
+            colorBox.style.backgroundColor = colorScale(value);
 
-        const legendItem = document.createElement('div');
-        legendItem.className = 'legend-item';
+            const label = document.createElement('span');
+            label.className = 'legend-label';
+            // Format based on value magnitude
+            if (value < 0.01 || value > 1000) {
+                label.textContent = value.toExponential(2);
+            } else {
+                label.textContent = value.toFixed(3);
+            }
 
-        const colorBox = document.createElement('div');
-        colorBox.className = 'legend-color';
-        // The color is derived from the value (0-1) passed to the scale function
-        colorBox.style.backgroundColor = colorScale(value);
+            legendItem.appendChild(colorBox);
+            legendItem.appendChild(label);
+            legendContainer.appendChild(legendItem);
+        }
+        
+        // Add zero value indicator if there are zero values
+        if (Object.values(geneData).some(v => v === 0)) {
+            const zeroItem = document.createElement('div');
+            zeroItem.className = 'legend-item';
+            
+            const colorBox = document.createElement('div');
+            colorBox.className = 'legend-color';
+            colorBox.style.backgroundColor = colorScale(0);
+            
+            const label = document.createElement('span');
+            label.className = 'legend-label';
+            label.textContent = '0';
+            
+            zeroItem.appendChild(colorBox);
+            zeroItem.appendChild(label);
+            legendContainer.insertBefore(zeroItem, legendContainer.children[1]); // After title
+        }
+    } else {
+        // Linear scale
+        for (let i = 0; i <= steps; i++) {
+            const value = minValue + (maxValue - minValue) * (i / steps);
+            
+            const legendItem = document.createElement('div');
+            legendItem.className = 'legend-item';
 
-        const label = document.createElement('span');
-        label.className = 'legend-label';
-        label.textContent = displayValue;
+            const colorBox = document.createElement('div');
+            colorBox.className = 'legend-color';
+            colorBox.style.backgroundColor = colorScale(value);
 
-        legendItem.appendChild(colorBox);
-        legendItem.appendChild(label);
-        legendContainer.appendChild(legendItem);
+            const label = document.createElement('span');
+            label.className = 'legend-label';
+            // Format based on value magnitude
+            if (value < 0.01 || value > 1000) {
+                label.textContent = value.toExponential(2);
+            } else if (value < 1) {
+                label.textContent = value.toFixed(3);
+            } else {
+                label.textContent = value.toFixed(2);
+            }
+
+            legendItem.appendChild(colorBox);
+            legendItem.appendChild(label);
+            legendContainer.appendChild(legendItem);
+        }
     }
 }
 
@@ -279,28 +341,162 @@ function onMouseOut() {
 
 
 function exportSVG() {
-    const svgElement = document.querySelector('#anatomogram-container svg');
-    if (!svgElement) {
-        alert('No SVG to export');
-        return;
-    }
+    try {
+        const svgElement = document.querySelector('#anatomogram-container svg');
+        if (!svgElement) {
+            alert('No SVG to export');
+            return;
+        }
 
-    const selectedGene = document.getElementById('gene-selector').value;
+        const selectedGene = document.getElementById('gene-selector').value;
+        const selectedScale = document.getElementById('scale-type-selector').value;
+        const selectedSex = document.querySelector('input[name="sex"]:checked').value;
+        const legendElement = document.getElementById('legend');
 
-    // Create a clone to avoid modifying the live SVG
+        // Create a wrapper SVG that includes both anatomogram and legend
+        const wrapper = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        
+        // Get original SVG viewBox for proper scaling
+        const viewBoxAttr = svgElement.getAttribute('viewBox');
+        console.log('ViewBox attribute:', viewBoxAttr);
+        
+        let originalWidth, originalHeight;
+        if (viewBoxAttr && viewBoxAttr.trim()) {
+            const viewBox = viewBoxAttr.split(' ');
+            originalWidth = parseFloat(viewBox[2]) || 106;
+            originalHeight = parseFloat(viewBox[3]) || 195;
+        } else {
+            // Fallback to width/height attributes
+            originalWidth = parseFloat(svgElement.getAttribute('width')) || 106;
+            originalHeight = parseFloat(svgElement.getAttribute('height')) || 195;
+        }
+        console.log('Original dimensions:', originalWidth, 'x', originalHeight);
+    
+    // Set target size for publication (anatomogram width)
+    const targetAnatomogramWidth = 600;
+    const scaleFactor = targetAnatomogramWidth / originalWidth;
+    const targetAnatomogramHeight = originalHeight * scaleFactor;
+    
+    // Legend dimensions scaled appropriately
+    const legendWidth = 250;
+    const legendPadding = 40;
+    const gap = 40;
+    const svgPadding = 20;
+    
+    // Calculate total dimensions with padding
+    const totalWidth = targetAnatomogramWidth + legendWidth + gap + (svgPadding * 2);
+    const totalHeight = targetAnatomogramHeight + (svgPadding * 2);
+    
+    // Set wrapper dimensions and viewBox
+    wrapper.setAttribute('width', totalWidth);
+    wrapper.setAttribute('height', totalHeight);
+    wrapper.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
+    wrapper.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    wrapper.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    
+    // Add metadata
+    const metadata = document.createElementNS('http://www.w3.org/2000/svg', 'metadata');
+    metadata.innerHTML = `
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                 xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <rdf:Description rdf:about="">
+                <dc:title>Gene Expression Anatomogram - ${selectedGene}</dc:title>
+                <dc:description>Expression levels for ${selectedGene} (${selectedScale} scale, ${selectedSex})</dc:description>
+                <dc:date>${new Date().toISOString()}</dc:date>
+                <dc:creator>Anatomogram Visualization Tool</dc:creator>
+            </rdf:Description>
+        </rdf:RDF>
+    `;
+    wrapper.appendChild(metadata);
+    
+    // Clone and process the anatomogram
+    const anatomogramGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    anatomogramGroup.setAttribute('transform', `translate(${svgPadding}, ${svgPadding})`);
     const svgClone = svgElement.cloneNode(true);
     
-    // Explicitly set width and height for better compatibility
-    const bounds = svgElement.getBoundingClientRect();
-    d3.select(svgClone)
-        .attr('width', bounds.width)
-        .attr('height', bounds.height);
-
+    // Set the scaled dimensions on the cloned SVG
+    svgClone.setAttribute('width', targetAnatomogramWidth);
+    svgClone.setAttribute('height', targetAnatomogramHeight);
+    if (viewBoxAttr) {
+        svgClone.setAttribute('viewBox', viewBoxAttr);
+    } else {
+        svgClone.setAttribute('viewBox', `0 0 ${originalWidth} ${originalHeight}`);
+    }
+    
+    // Convert all computed styles to inline styles for the anatomogram
+    const allElements = svgClone.querySelectorAll('*');
+    allElements.forEach(elem => {
+        const computedStyle = window.getComputedStyle(elem);
+        if (computedStyle.fill && computedStyle.fill !== 'none' && computedStyle.fill !== 'rgb(0, 0, 0)') {
+            elem.setAttribute('fill', computedStyle.fill);
+        }
+        if (computedStyle.stroke && computedStyle.stroke !== 'none') {
+            elem.setAttribute('stroke', computedStyle.stroke);
+        }
+        if (computedStyle.strokeWidth) {
+            elem.setAttribute('stroke-width', computedStyle.strokeWidth);
+        }
+        // Remove any class attributes to ensure styles are embedded
+        elem.removeAttribute('class');
+    });
+    
+    // Add the entire SVG to preserve scaling
+    anatomogramGroup.appendChild(svgClone);
+    wrapper.appendChild(anatomogramGroup);
+    
+    // Create legend as SVG
+    const legendGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    legendGroup.setAttribute('transform', `translate(${svgPadding + targetAnatomogramWidth + gap}, ${svgPadding + legendPadding})`);
+    
+    // Add legend title
+    const legendTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    legendTitle.setAttribute('x', '0');
+    legendTitle.setAttribute('y', '0');
+    legendTitle.setAttribute('font-family', 'Arial, sans-serif');
+    legendTitle.setAttribute('font-size', '20');
+    legendTitle.setAttribute('font-weight', 'bold');
+    legendTitle.textContent = `Expression Level (${selectedScale})`;
+    legendGroup.appendChild(legendTitle);
+    
+    // Add legend items
+    const legendItems = legendElement.querySelectorAll('.legend-item');
+    legendItems.forEach((item, index) => {
+        const colorBox = item.querySelector('.legend-color');
+        const label = item.querySelector('.legend-label');
+        
+        if (colorBox && label) {
+            const yPos = 40 + (index * 35);
+            
+            // Add color rectangle
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', '0');
+            rect.setAttribute('y', yPos);
+            rect.setAttribute('width', '40');
+            rect.setAttribute('height', '25');
+            rect.setAttribute('fill', colorBox.style.backgroundColor);
+            rect.setAttribute('stroke', '#000');
+            rect.setAttribute('stroke-width', '1');
+            legendGroup.appendChild(rect);
+            
+            // Add label
+            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', '50');
+            text.setAttribute('y', yPos + 18);
+            text.setAttribute('font-family', 'Arial, sans-serif');
+            text.setAttribute('font-size', '16');
+            text.textContent = label.textContent;
+            legendGroup.appendChild(text);
+        }
+    });
+    
+    wrapper.appendChild(legendGroup);
+    
+    // Serialize the complete SVG
     const serializer = new XMLSerializer();
-    let svgString = serializer.serializeToString(svgClone);
+    let svgString = serializer.serializeToString(wrapper);
 
-    // Add XML declaration and DOCTYPE for stricter SVG format
-    svgString = '<?xml version="1.0" standalone="no"?>\r\n' + svgString;
+    // Add XML declaration
+    svgString = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + svgString;
 
     const blob = new Blob([svgString], {
         type: 'image/svg+xml;charset=utf-8'
@@ -308,13 +504,17 @@ function exportSVG() {
 
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `anatomogram_${selectedGene}_expression.svg`;
+    link.download = `anatomogram_${selectedGene}_${selectedScale}_${selectedSex}.svg`;
 
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
     URL.revokeObjectURL(link.href);
+    } catch (error) {
+        console.error('Error exporting SVG:', error);
+        alert('Error exporting SVG. Please check the console for details.');
+    }
 }
 
 function showDebugInfo() {

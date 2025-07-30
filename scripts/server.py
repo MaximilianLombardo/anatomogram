@@ -20,8 +20,8 @@ class ExpressionDataHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, expression_data=None, uberon_map=None, **kwargs):
         self.expression_data = expression_data
         self.uberon_map = uberon_map
-        # Change to src directory for serving
-        os.chdir(os.path.join(os.path.dirname(__file__), '..', 'src'))
+        # Change to repository root for serving
+        os.chdir(os.path.join(os.path.dirname(__file__), '..'))
         super().__init__(*args, **kwargs)
     
     def do_GET(self):
@@ -30,6 +30,15 @@ class ExpressionDataHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json_file(self.expression_data)
         elif self.path == '/data/uberon_id_map.json' and self.uberon_map:
             self.send_json_file(self.uberon_map)
+        elif self.path == '/' or self.path == '/index.html':
+            # Serve index.html from src directory
+            self.path = '/src/index.html'
+            super().do_GET()
+        elif self.path.endswith('.html') or self.path.endswith('.js') or self.path.endswith('.css'):
+            # Serve other web files from src directory if not already prefixed
+            if not self.path.startswith('/src/'):
+                self.path = '/src' + self.path
+            super().do_GET()
         else:
             # For all other requests, use default handler
             super().do_GET()
